@@ -1,0 +1,130 @@
+#!/usr/bin/env bash
+#
+# A script to backup LXC containers .
+
+# AUTHOR :  Peerapach Varalertsakul <peerapach@ezylinux.com>
+# DESCRIPT : full backup lxc container
+
+# Default variables
+BACKUPDATE=$(date +"%m%d%Y")
+BACKUPFILE="$LXCCONTAINER-$BACKUPDATE.tar.gz"
+BACKUPDIR="/tmp/lxcbackup"
+
+# Check if which is finding the executables to contintue. 
+if [ -z "$(which lxc-info)" ]; then
+    echo "LXC command NOT found?"; 
+    exit 1 ;
+fi
+
+# Functions
+
+usage () {
+    echo "Usage:"
+    echo " Full backup: $0 -a"
+    echo " Backup container: $0 -n <container-name>"
+    exit 1
+}
+
+log_echo () {
+   logger "lxdbackup: $LXCCONTAINER - $@"
+   echo $@
+} 
+
+# Main backup script
+check_backupdir () {
+    if [ ! -d "$BACKUPDIR" ]; then
+        mkdir $BACKUPDIR && cd $BACKUPDIR
+        log_echo "Backup directory: $BACKUPDIR created for backup"
+    fi
+}
+
+check_container () {
+    # Check lxc container is ok
+    if [ -z $LXCCONTAINER ]; then 
+        return 1
+    fi
+    if $(which lxc-info) -n $LXCCONTAINER > /dev/null 2>&1 ; then
+        log_echo "Info: Container $LXCCONTAINER found, continuing.."
+    else
+        log_echo "Error: Container $LXCCONTAINER NOT found, exiting lxcbackup"
+        return 1
+    fi
+}
+
+backup () {
+    BACKUPFILE="$LXCCONTAINER-$BACKUPDATE.tar.gz"
+    
+    cd /var/lib/lxc/$LXCCONTAINER
+    log_echo "Info: Backup to $BACKUPDIR/$BACKUPFILE"
+    tar --numeric-owner -czf $BACKUPDIR/$BACKUPFILE ./* || log_echo "Error: backup error"
+}
+
+backup_container () {
+    # Backup lxc container
+    LXCCONTAINER="$1"
+
+    if [ -d /var/lib/lxc/$LXCCONTAINER ]; then
+
+        LXCSTATUS=$($(which lxc-info) -n $LXCCONTAINER |grep State |awk '{ print $2 }')
+
+        if [ "$LXCSTATUS" = "RUNNING" ]; then
+            # Stop container
+            if $(which lxc-stop) -n $LXCCONTAINER; then
+                log_echo "Info: $LXCCONTAINER is stopped"
+                backup
+
+            else
+                log_echo "Error: can not stop $LXCCONTAINER, exiting lxcbackup"
+                return 1
+            fi
+        
+            # Start container
+            if $(which lxc-start) -n $LXCCONTAINER; then
+                log_echo "Info: $LXCCONTAINER is started"
+            else
+                log_echo "Error: can not start $LXCCONTAINER, exiting lxcbackup"
+                return 1
+            fi
+
+        elif [ "$LXCSTATUS" = "STOPPED" ]; then
+            log_echo "Info: $LXCCONTAINER is stopped"
+            backup
+        fi
+
+        # Make sure current status equal to previous status of container
+        LXCCURRENTSTATUS=$($(which lxc-info) -n $LXCCONTAINER |grep State |awk '{ print $2 }')
+        if [ "$LXCCURRENTSTATUS" != "RUNNING" ] && [ "$LXCSTATUS" = "RUNNING" ]; then
+            log_echo "Info: retry start $LXCCONTAINER"
+            $(which lxc-start) -n $LXCCONTAINER;
+        fi
+
+    fi
+}
+
+backup_all_container () {
+    ls /var/lib/lxc | while read CONTAINER; do
+        check_backupdir
+        check_container
+        backup_container $CONTAINER
+    done
+}
+
+while getopts ":an:" opt; do
+    case "${opt}" in
+        a)
+            backup_all_container
+            ;;
+        n)
+            n=${OPTARG}
+            check_backupdir
+            check_container
+            backup_container $n
+            ;;
+        *)
+            usage
+            exit 1
+            ;;
+    esac
+done
+
+exit $?
