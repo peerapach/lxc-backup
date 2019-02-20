@@ -54,9 +54,9 @@ check_container () {
 backup () {
     BACKUPFILE="$LXCCONTAINER-$BACKUPDATE.tar.gz"
     
-    cd /var/lib/lxc/$LXCCONTAINER
+    cd /var/lib/lxc
     log_echo "Info: Backup to $BACKUPDIR/$BACKUPFILE"
-    tar --numeric-owner -czf $BACKUPDIR/$BACKUPFILE ./* || log_echo "Error: backup error"
+    tar --numeric-owner -czf $BACKUPDIR/$BACKUPFILE $LXCCONTAINER || log_echo "Error: backup error"
 }
 
 backup_container () {
